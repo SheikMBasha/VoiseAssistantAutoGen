@@ -1,6 +1,7 @@
 from fastapi import FastAPI, Request
 from pydantic import BaseModel
 from agents import run_autogen_agents
+from fastapi.responses import JSONResponse
 
 app = FastAPI()
 
@@ -84,3 +85,48 @@ def handle_dialogflow(request: DialogflowRequest):
         chat_history=request.chat_history
     )
     return {"fulfillmentText": response}
+
+
+@app.post("/webhook") # working endpoint
+async def webhook(request: Request):
+    req = await request.json()
+    print(req)
+
+    # Extract relevant info
+    session_id = req.get('session', 'default')
+    user_text = req.get('queryResult', {}).get('queryText', '')
+    intent = req.get('queryResult', {}).get('intent', {}).get('displayName', 'unknown')
+    parameters = req.get('queryResult', {}).get('parameters', {})
+    chat_history = session_memory.get(session_id, [])
+
+    # Run agent logic
+    result = run_autogen_agents(
+        intent=intent,
+        user_text=user_text,
+        parameters=parameters,
+        sentiment="neutral",
+        chat_history=chat_history
+    )
+
+    # Update chat memory
+    chat_history.append({"role": "user", "content": user_text})
+    chat_history.append({"role": "assistant", "content": result})
+    session_memory[session_id] = chat_history
+
+    # Respond to Dialogflow
+    response = {
+        "fulfillmentText": result,
+        "fulfillmentMessages": [
+            {
+                "text": {
+                    "text": [result]
+                }
+            },
+            {
+                "platform": "AUDIO",
+                "ssml": f"<speak>{result}</speak>"
+            }
+        ]
+    }
+
+    return JSONResponse(content=response)
