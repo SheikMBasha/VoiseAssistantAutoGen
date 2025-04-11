@@ -86,6 +86,8 @@ def run_autogen_agents(intent, user_text, parameters, sentiment, chat_history=No
     if not test_openai_connection():
         return "Failed to connect to OpenAI API. Please check your API key and network connection."
 
+
+
     config = INTENT_CONFIG.get(intent)
     if not config:
         return f"Unknown intent: '{intent}'. No agent configuration available."
@@ -94,7 +96,12 @@ def run_autogen_agents(intent, user_text, parameters, sentiment, chat_history=No
 
     # Check for required parameters
     required = config.get("required_params", [])
-    missing = [param for param in required if not parameters.get(param)]
+    missing = [param for param in required if not parameters.get(param) or not str(parameters.get(param)).strip()]
+    # missing = [param for param in required if not parameters.get(param)]
+
+    print(f"Params is {parameters}")
+    print(f"Missing is {missing}")
+
 
     if missing:
         # Ask user for missing parameters
@@ -126,14 +133,24 @@ def run_autogen_agents(intent, user_text, parameters, sentiment, chat_history=No
 
         try:
             print("🔎 Asking for missing parameters...")
-            user_proxy.initiate_chat(assistant, message=context_prompt.strip())
-            return assistant.last_message()["content"]
+            return prompt  # Send prompt to Dialogflow; wait for real user response
         except Exception as e:
             return f"Error prompting for missing parameters: {str(e)}"
+
+
+        # try:
+        #     print("🔎 Asking for missing parameters...")
+        #     user_proxy.initiate_chat(assistant, message=context_prompt.strip())
+        #     return assistant.last_message()["content"]
+        # except Exception as e:
+        #     return f"Error prompting for missing parameters: {str(e)}"
 
     # Call external API (if configured)
     api_data = "No data found"
     api_url = config.get("api")
+
+    print(f"🔁 Sending payload to {api_url}:")
+
 
     if api_url:
         try:
@@ -142,6 +159,7 @@ def run_autogen_agents(intent, user_text, parameters, sentiment, chat_history=No
                 "parameters": parameters or {},
                 "sentiment": sentiment or ""
             }
+            print(f"payload is {payload}")
             response = requests.post(api_url, json=payload, timeout=10)
             response.raise_for_status()
             api_data = response.json().get("response", "No 'response' key in API reply")

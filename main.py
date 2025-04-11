@@ -1,6 +1,7 @@
 from fastapi import FastAPI, Request
 from pydantic import BaseModel
 from agents import run_autogen_agents
+from fastapi.responses import JSONResponse
 
 app = FastAPI()
 
@@ -84,3 +85,80 @@ def handle_dialogflow(request: DialogflowRequest):
         chat_history=request.chat_history
     )
     return {"fulfillmentText": response}
+
+
+@app.post("/webhook")  # working endpoint
+async def webhook(request: Request):
+    req = await request.json()
+    print(f"Request is {req}")
+
+
+
+    # Extract relevant info
+    session_id = req.get('session', 'default')
+    user_text = req.get('queryResult', {}).get('queryText', '')
+    intent = req.get('queryResult', {}).get('intent', {}).get('displayName', 'unknown')
+    parameters = req.get('queryResult', {}).get('parameters', {})
+    chat_history = session_memory.get(session_id, [])
+    # parameters = {}
+
+    # 👇 Normalize Dialogflow follow-up intent names
+    base_intent = intent.split(" - ")[0] if " - " in intent else intent
+
+    print(f"user_text is: {user_text}")
+    print(f"Intent is: {intent}")
+    print(f"BaseIntent is: {base_intent}")
+    print(f"🧾 Dialogflow Parameters: {parameters}")
+    # print(f"🧾 Required: {required}, Missing: {missing}")
+
+    # Run agent logic
+    result = run_autogen_agents(
+        intent=base_intent,
+        user_text=user_text,
+        parameters=parameters,
+        sentiment="neutral",
+        chat_history=chat_history
+    )
+
+    # Update chat memory
+    chat_history.append({"role": "user", "content": user_text})
+    chat_history.append({"role": "assistant", "content": result})
+    session_memory[session_id] = chat_history
+
+    print(f'Result in main.py before sending to DF is {result}')
+    # Respond to Dialogflow
+    # response = {
+    #     "fulfillmentText": result,
+    #     "fulfillmentMessages": [
+    #         {
+    #             "text": {
+    #                 "text": [result]
+    #             }
+    #         },
+    #         {
+    #             "platform": "AUDIO",
+    #             "ssml": f"<speak>{result}</speak>"
+    #         }
+    #     ]
+    # }
+
+    response = {
+        "fulfillmentText": result,
+        "fulfillmentMessages": [
+            {
+                "text": {
+                    "text": [result]
+                }
+            },
+            {
+                "platform": "TELEPHONY",
+                "telephonySynthesizeSpeech": {
+                    "ssml": f"<speak>{result}</speak>"
+                }
+            }
+        ]
+    }
+
+    print(f"Response is {response}")
+    print(f"✅ Returning final webhook response to Dialogflow {JSONResponse(content=response)}")
+    return JSONResponse(content=response)
